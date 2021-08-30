@@ -3,11 +3,12 @@ const express = require('express');
 const fastJson = require('fast-json-stringify')
 const fs = require('fs');
 
-let key_basic_info = '?__a=1'
-let now_timestamp = Date.now();
-let post_object = [];
-
-let key_query_hash = '472f257a40c653c64c666ce877d59d2b&variables=%7B%22id%22%3A%22275237117%22%2C%22first%22%3A12%2C%22after%22%3A%22AQDgv0_xlXhuHI_YQW8deViqPYXPj7dim6ODe_tAbM6XLhqwbe-Xp4JPEHpLAJ5XGusu-nKdFoCYCVFcF7OkjSscKISMfCYIsEVs8zx9h2rWaQ%22%7D'
+const batch = '50';
+const length = parseInt(batch);
+const key_basic_info = '?__a=1'
+const path_query_hash = '/graphql/query/?query_hash='
+const now_timestamp = Date.now();
+let posts = [];
 
 const get_url = function () {
   const argvs = process.argv.slice(2);
@@ -51,14 +52,26 @@ const get_options = function () {
   }
 }
 
-let bioprofile = {
-  profile: {
-    id: "",
-    follower_count: 0,
-    biography: "",
-    username: ""
+const get_query_hash_options = function (id,cursor) {
+  let credential = get_credential
+  return {
+    hostname: get_url().hostname,
+    port: 443,
+    path: path_query_hash + '8c2a529969ee035a5063f2fc8602a0fd&variables=%7B%22id%22%3A%22'+ id + '%22%2C%22first%22%3A' + batch + '%2C%22after%22%3A%22' + cursor +'%3D%3D%22%7D',
+    method: 'GET',
+    headers: {
+      Cookie: credential
+    },
   }
 }
+
+let profile = {
+  id: "",
+  follower_count: 0,
+  biography: "",
+  username: ""
+}
+
 
 let get_base_info = function () {
   let options = get_options();
@@ -75,72 +88,102 @@ let get_base_info = function () {
 
       res.on('end', () => {
         let data = JSON.parse(raw)
-        bioprofile.profile.id = data.graphql.user.id
-        bioprofile.profile.follower_count = data.graphql.user.edge_followed_by.count
-        bioprofile.profile.biography = data.graphql.user.biography
-        bioprofile.profile.username = data.graphql.user.username
 
-        for(let i = 0; i < data.graphql.user.edge_owner_to_timeline_media.edges.length; i++) {
+        profile.id = data.graphql.user.id
+        profile.follower_count = data.graphql.user.edge_followed_by.count
+        profile.biography = data.graphql.user.biography
+        profile.username = data.graphql.user.username
+
+        let count = 0
+        edge_length = data.graphql.user.edge_owner_to_timeline_media.edges.length
+        for(let i = 0; i < edge_length; i++) {
           let n = data.graphql.user.edge_owner_to_timeline_media.edges[i].node
-          if ((now_timestamp-n.taken_at_timestamp*1000) < get_month())
-          post_object.push({
-            id: n.id,
-            shortcode: n.shortcode,
-            display_url: n.display_url,
-            like_count: n.edge_media_preview_like.count,
-            comment_count: n.edge_media_to_comment.count,
-            is_video: n.is_video,
-            taken_at_timestamp: n.taken_at_timestamp
-          })
+          if ((now_timestamp-n.taken_at_timestamp*1000) < get_month()) {
+              posts.push({
+                id: n.id,
+                shortcode: n.shortcode,
+                display_url: n.display_url,
+                like_count: n.edge_media_preview_like.count,
+                comment_count: n.edge_media_to_comment.count,
+                is_video: n.is_video,
+                taken_at_timestamp: n.taken_at_timestamp
+            })
+            count ++ 
+          }
         }
 
-        console.log(post_object)
-        console.log(data.graphql.user.edge_owner_to_timeline_media.page_info.has_next_page)
-        console.log(data.graphql.user.edge_owner_to_timeline_media.page_info.end_cursor)
-        resolve(bioprofile)
+        let get_next = false
+        if (count == edge_length) {
+          get_next = true
+        }
+        has_next_page = data.graphql.user.edge_owner_to_timeline_media.page_info.has_next_page
+        end_cursor = data.graphql.user.edge_owner_to_timeline_media.page_info.end_cursor.slice(0,-2)
+
+        resolve({profile: profile,has_next_page: has_next_page, end_cursor: end_cursor, get_next: get_next})
       })
     })
     req.end()
   })
 }
 
-let get_next_page = function () {
+let get_next_page = function (id, cursor) {
+  let options = get_query_hash_options(id, cursor);
+
+  return new Promise ((resolve, reject) => {
+    let req = https.get(options, (res) => {
+      let raw = '';
+
+      res.on('data', (chunk) => {
+        raw += chunk;
+      }).on("error", (error) => {
+        reject(console.error(error))
+      });
+      res.on('end', () => {
+        let data = JSON.parse(raw).data
+        let count = 0
+
+        for(let i = 0; i < length; i++) {
+          let n = data.user.edge_owner_to_timeline_media.edges[i].node
+          if ((now_timestamp-n.taken_at_timestamp*1000) < get_month()) {
+              posts.push({
+                id: n.id,
+                shortcode: n.shortcode,
+                display_url: n.display_url,
+                like_count: n.edge_media_preview_like.count,
+                comment_count: n.edge_media_to_comment.count,
+                is_video: n.is_video,
+                taken_at_timestamp: n.taken_at_timestamp
+            })
+            count ++ 
+          }
+        }
+
+        let get_next = false
+        if (count == length) {
+          get_next = true
+        }
+        has_next_page = data.user.edge_owner_to_timeline_media.page_info.has_next_page
+        end_cursor = data.user.edge_owner_to_timeline_media.page_info.end_cursor.slice(0,-2)
+        resolve({has_next_page: has_next_page, end_cursor: end_cursor, get_next: get_next})
+      })
+    })
+    req.end()
+  })
+}
+
+async function control_flow() {
+
+  let base_info = await get_base_info();
+  if (base_info.has_next_page && base_info.get_next) {
+    let page_info = await get_next_page(base_info.profile.id, base_info.end_cursor)
+  }
+  let object = {
+    profile,
+    posts
+  }
+  console.log(object)
 
 }
 
-async function f1() {
-  var x = await get_base_info();
-  console.log(x.profile.id);
-}
+control_flow()
 
-
-f1()
-
-// const option_query = {
-//     hostname: url.hostname,
-//     port: 443,
-//     path: url.pathname + query_hash,
-//     method: 'GET',
-//     // family: 4,
-//     headers: {
-//         Cookie: 'mid=YRoT9gAEAAFVU9z-0gSaWs7k3804; ig_did=B689243A-062D-4858-BA5E-65847FB70CC3; ig_nrcb=1; csrftoken=PlW3beVGxorV5MR43M6SKZ0zHdLA1iw7; ds_user_id=4041465553; sessionid=4041465553%3AWfXDqMthkVP5a2%3A23; shbid="3317\0544041465553\0541661501481:01f73eaea89deccb3d11b006973845dc2a36b7cf8ee577dfdc08e8d3a2457fbb860279d4"; shbts="1629965481\0544041465553\0541661501481:01f74ca40a371b3fcf753d9937f0261447615f4957922fb6fe69a732d2bb6c6173908565"; rur="PRN\0544041465553\0541661544173:01f7a339cf09961b5ca8f6a41c716c63ed3cfe812ddd47a5b9971aa5d88a37fde321a3c5"'
-//     },
-//   }
-
-// https.get(option_query, (res) => {
-// let data = '';
-
-// // A chunk of data has been received.
-// res.on('data', (chunk) => {
-//     data += chunk;
-// });
-
-// // The whole resonse has been received. Print out the result.
-// res.on('end', () => {
-//     console.log(JSON.parse(data))
-//     // console.log(get_id(data))
-// });
-
-// }).on("error", (err) => {
-// console.log("Error: " + err.message);
-// });
