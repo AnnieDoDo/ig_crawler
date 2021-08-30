@@ -3,11 +3,9 @@ const express = require('express');
 const fastJson = require('fast-json-stringify')
 const fs = require('fs');
 
-let timestamp = 0;
 let key_basic_info = '?__a=1'
-
-
-let month = 0
+let now_timestamp = Date.now();
+let post_object = [];
 
 let key_query_hash = '472f257a40c653c64c666ce877d59d2b&variables=%7B%22id%22%3A%22275237117%22%2C%22first%22%3A12%2C%22after%22%3A%22AQDgv0_xlXhuHI_YQW8deViqPYXPj7dim6ODe_tAbM6XLhqwbe-Xp4JPEHpLAJ5XGusu-nKdFoCYCVFcF7OkjSscKISMfCYIsEVs8zx9h2rWaQ%22%7D'
 
@@ -20,6 +18,18 @@ const get_url = function () {
   return new URL (argvs[0])
 }
 
+const get_month = function () {
+  const argvs = process.argv.slice(2);
+  if (!argvs[1]) {
+    console.log("Please enter the number of month")
+    process.exit(1)
+  } else if (!Number.isInteger(parseInt(argvs[1]))) {
+    console.log("Please enter integer")
+    process.exit(1)
+  }
+  return argvs[1]*30*24*60*60*1000
+}
+
 const get_credential = fs.readFileSync('./credential.txt', 'utf8' , (err, data) => {
   if (err) {
     console.log("Please enter the IG Loggined credential")
@@ -28,33 +38,18 @@ const get_credential = fs.readFileSync('./credential.txt', 'utf8' , (err, data) 
   return data.toString()
 })
 
-let get_options = function () {
+const get_options = function () {
   let credential = get_credential
   return {
     hostname: get_url().hostname,
     port: 443,
     path: get_url().pathname + key_basic_info,
     method: 'GET',
-    // family: 4,
     headers: {
       Cookie: credential
     },
   }
 }
-
-// const get_id = fastJson ({
-//     title: 'get_id',
-//     type: 'object',
-//     properties: {
-//         seo_category_infos: 'array',
-//         logging_page_id: 'string',
-//         graphql: { 
-//             id: 'string'
-//         },
-//     }
-// })
-
-
 
 let bioprofile = {
   profile: {
@@ -84,8 +79,24 @@ let get_base_info = function () {
         bioprofile.profile.follower_count = data.graphql.user.edge_followed_by.count
         bioprofile.profile.biography = data.graphql.user.biography
         bioprofile.profile.username = data.graphql.user.username
-        // console.log(data.graphql.user.edge_felix_video_timeline.page_info.has_next_page)
-        // console.log(data.graphql.user.edge_felix_video_timeline.page_info.end_cursor)
+
+        for(let i = 0; i < data.graphql.user.edge_owner_to_timeline_media.edges.length; i++) {
+          let n = data.graphql.user.edge_owner_to_timeline_media.edges[i].node
+          if ((now_timestamp-n.taken_at_timestamp*1000) < get_month())
+          post_object.push({
+            id: n.id,
+            shortcode: n.shortcode,
+            display_url: n.display_url,
+            like_count: n.edge_media_preview_like.count,
+            comment_count: n.edge_media_to_comment.count,
+            is_video: n.is_video,
+            taken_at_timestamp: n.taken_at_timestamp
+          })
+        }
+
+        console.log(post_object)
+        console.log(data.graphql.user.edge_owner_to_timeline_media.page_info.has_next_page)
+        console.log(data.graphql.user.edge_owner_to_timeline_media.page_info.end_cursor)
         resolve(bioprofile)
       })
     })
@@ -93,10 +104,15 @@ let get_base_info = function () {
   })
 }
 
+let get_next_page = function () {
+
+}
+
 async function f1() {
   var x = await get_base_info();
-  console.log(x);
+  console.log(x.profile.id);
 }
+
 
 f1()
 
