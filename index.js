@@ -176,13 +176,20 @@ async function control_flow() {
   let base_info = await get_base_info();
   if (base_info.has_next_page && base_info.get_next) {
     let page_info = await get_next_page(base_info.profile.id, base_info.end_cursor)
+
+    let has_next_page = page_info.has_next_page
+    let get_next = page_info.get_next
+    while (has_next_page && get_next) {
+      let repeat_page_info = await get_next_page(base_info.profile.id, page_info.end_cursor)
+      has_next_page = repeat_page_info.has_next_page
+      get_next = repeat_page_info.get_next
+    }
   }
   let object = {
     profile,
     posts
   }
   console.log(object)
-
 }
 
 control_flow()
