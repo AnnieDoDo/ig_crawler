@@ -7,9 +7,9 @@
 * variables: string of urlencoded json
 ```json
 {
-    "id": userid,
-    "first": at most 50 posts per request,
-    "after": end_cursor,
+    "id": "userid", //string
+    "first": "at most 50 posts per request", //number
+    "after": "end_cursor", //string
 }
 ```
 
